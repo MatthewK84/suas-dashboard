@@ -1,10 +1,7 @@
 // ── server.js ───────────────────────────────────────────────────────────────
-// Express server: serves Vite-built static files and provides JSON API
-// endpoints for process status management and idea intake.
-//
-// Data is stored in a JSON file on disk. Railway's filesystem persists
-// during runtime but resets on redeploy. For production, swap to a
-// database (Railway Postgres, SQLite, etc.).
+// ADMIN PIN: Set via ADMIN_PIN env var (default: "1234"). Shared by all admins.
+// DATA: Stored in data.json. Persists during Railway runtime, resets on redeploy
+// unless a volume is attached.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import express from "express";
@@ -17,49 +14,74 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_PIN = process.env.ADMIN_PIN || "1234";
-const DATA_FILE = join(__dirname, "data.json");
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+const DATA_FILE = join(DATA_DIR, "data.json");
 
 app.use(express.json());
 
-// ── Data Layer ──────────────────────────────────────────────────────────────
+// ── Process Gate Template (14 gates per vendor) ─────────────────────────────
 
-const DEFAULT_PROCESS_ITEMS = [
-  { id: "ma",      label: "Mission Analysis",  short: "MA",      group: "core",  status: "red",    assignedAdmin: "" },
-  { id: "rwg",     label: "Requirements Working Group", short: "RWG", group: "core", status: "red", assignedAdmin: "" },
-  { id: "fm",      label: "Financial Management", short: "FM",    group: "core",  status: "red",    assignedAdmin: "" },
-  { id: "cont",    label: "Contracting",        short: "CONT",   group: "core",  status: "red",    assignedAdmin: "" },
-  { id: "admin",   label: "Administrative",     short: "ADMIN",  group: "core",  status: "red",    assignedAdmin: "" },
-  { id: "abl",     label: "Receive, Locate, Inventory & W+V", short: "ABL", group: "core", status: "red", assignedAdmin: "" },
-  { id: "otti_mf", label: "Maiden Flight",      short: "MF",     group: "otti",  status: "red",    assignedAdmin: "" },
-  { id: "otti_test", label: "Test",             short: "TEST",   group: "otti",  status: "red",    assignedAdmin: "" },
-  { id: "otti_ttp", label: "TTP",               short: "TTP",    group: "otti",  status: "red",    assignedAdmin: "" },
-  { id: "otti_fg", label: "FG/Check Ride",      short: "FG/CR",  group: "otti",  status: "red",    assignedAdmin: "" },
-  { id: "otti_eval", label: "Evaluate",         short: "EVAL",   group: "otti",  status: "red",    assignedAdmin: "" },
-  { id: "cuops",   label: "Current Operations", short: "CUOPS",  group: "ops",   status: "red",    assignedAdmin: "" },
-  { id: "fuops",   label: "Future Operations",  short: "FUOPS",  group: "ops",   status: "red",    assignedAdmin: "" },
-  { id: "transcom", label: "TRANSCOM Coordination", short: "TRANSCOM", group: "ops", status: "red", assignedAdmin: "" },
+function createGateTemplate() {
+  return [
+    { id: "ma",        label: "Mission Analysis",                  short: "MA",       group: "core",  status: "red", assignedAdmin: "" },
+    { id: "rwg",       label: "Requirements Working Group",        short: "RWG",      group: "core",  status: "red", assignedAdmin: "" },
+    { id: "fm",        label: "Financial Management",              short: "FM",       group: "core",  status: "red", assignedAdmin: "" },
+    { id: "cont",      label: "Contracting",                      short: "CONT",     group: "core",  status: "red", assignedAdmin: "" },
+    { id: "admin",     label: "Administrative",                   short: "ADMIN",    group: "core",  status: "red", assignedAdmin: "" },
+    { id: "abl",       label: "Receive, Locate, Inventory & W+V", short: "ABL",      group: "core",  status: "red", assignedAdmin: "" },
+    { id: "otti_mf",   label: "Maiden Flight",                    short: "MF",       group: "otti",  status: "red", assignedAdmin: "" },
+    { id: "otti_test", label: "Test",                              short: "TEST",     group: "otti",  status: "red", assignedAdmin: "" },
+    { id: "otti_ttp",  label: "TTP",                              short: "TTP",      group: "otti",  status: "red", assignedAdmin: "" },
+    { id: "otti_fg",   label: "FG/Check Ride",                    short: "FG/CR",    group: "otti",  status: "red", assignedAdmin: "" },
+    { id: "otti_eval", label: "Evaluate",                         short: "EVAL",     group: "otti",  status: "red", assignedAdmin: "" },
+    { id: "cuops",     label: "Current Operations",               short: "CUOPS",    group: "ops",   status: "red", assignedAdmin: "" },
+    { id: "fuops",     label: "Future Operations",                short: "FUOPS",    group: "ops",   status: "red", assignedAdmin: "" },
+    { id: "transcom",  label: "TRANSCOM Coordination",            short: "TRANSCOM", group: "ops",   status: "red", assignedAdmin: "" },
+  ];
+}
+
+const DEFAULT_VENDOR_NAMES = [
+  "AeroVironment", "Anduril Industries", "Raytheon / RTX", "Lockheed Martin",
+  "L3Harris / Textron", "SAIC / Northrop Grumman", "SRC Inc.", "D-Fend Solutions",
+  "Flex Force Enterprises", "Dedrone (Axon)", "Aevex Aerospace", "AFRL / Leidos",
+  "Applied Physical Sciences (General Dynamics)",
 ];
+
+function createDefaultVendors() {
+  return DEFAULT_VENDOR_NAMES.map((name) => ({
+    id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+    name,
+    processItems: createGateTemplate(),
+    createdAt: new Date().toISOString(),
+  }));
+}
 
 const DEFAULT_SUBGROUPS = [
-  { id: "ops",      name: "Operations" },
-  { id: "logistics", name: "Logistics" },
-  { id: "intel",    name: "Intelligence" },
-  { id: "comms",    name: "Communications" },
-  { id: "fires",    name: "Fires" },
-  { id: "eng",      name: "Engineering" },
+  { id: "ops", name: "Operations" }, { id: "logistics", name: "Logistics" },
+  { id: "intel", name: "Intelligence" }, { id: "comms", name: "Communications" },
+  { id: "fires", name: "Fires" }, { id: "eng", name: "Engineering" },
   { id: "leadership", name: "Leadership" },
 ];
+
+// ── Data Layer ──────────────────────────────────────────────────────────────
 
 function loadData() {
   if (existsSync(DATA_FILE)) {
     try {
-      return JSON.parse(readFileSync(DATA_FILE, "utf-8"));
+      const raw = JSON.parse(readFileSync(DATA_FILE, "utf-8"));
+      // Auto-migrate old flat format → per-vendor format
+      if (raw.processItems && !raw.vendors) {
+        raw.vendors = createDefaultVendors();
+        delete raw.processItems;
+        saveData(raw);
+      }
+      return raw;
     } catch {
-      console.warn("[server] Corrupt data file, resetting to defaults.");
+      console.warn("[server] Corrupt data file, resetting.");
     }
   }
   const defaults = {
-    processItems: DEFAULT_PROCESS_ITEMS,
+    vendors: createDefaultVendors(),
     admins: [],
     ideas: [],
     subgroups: DEFAULT_SUBGROUPS,
@@ -72,74 +94,87 @@ function saveData(data) {
   writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-// ── Auth Middleware ──────────────────────────────────────────────────────────
-
 function requirePin(req, res, next) {
   const pin = req.headers["x-admin-pin"] || req.body?.pin;
-  if (pin !== ADMIN_PIN) {
-    return res.status(401).json({ error: "Invalid admin PIN." });
-  }
+  if (pin !== ADMIN_PIN) return res.status(401).json({ error: "Invalid admin PIN." });
   next();
 }
 
-// ── Process Status Endpoints ────────────────────────────────────────────────
+// ── Auth ────────────────────────────────────────────────────────────────────
 
-app.get("/api/process", (_req, res) => {
-  const data = loadData();
-  res.json({ items: data.processItems, admins: data.admins });
+app.post("/api/auth/verify", (req, res) => {
+  res.json({ valid: req.body?.pin === ADMIN_PIN });
 });
 
-app.put("/api/process/:id/status", requirePin, (req, res) => {
-  const { id } = req.params;
+// ── Vendors ─────────────────────────────────────────────────────────────────
+
+app.get("/api/vendors", (_req, res) => {
+  const data = loadData();
+  res.json({ vendors: data.vendors, admins: data.admins });
+});
+
+app.post("/api/vendors", requirePin, (req, res) => {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: "Vendor name required." });
+  const data = loadData();
+  const trimmed = name.trim();
+  if (data.vendors.some((v) => v.name.toLowerCase() === trimmed.toLowerCase())) {
+    return res.status(409).json({ error: "Vendor already exists." });
+  }
+  const vendor = {
+    id: trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + "-" + Date.now().toString(36),
+    name: trimmed,
+    processItems: createGateTemplate(),
+    createdAt: new Date().toISOString(),
+  };
+  data.vendors.push(vendor);
+  saveData(data);
+  res.status(201).json(vendor);
+});
+
+app.delete("/api/vendors/:vendorId", requirePin, (req, res) => {
+  const data = loadData();
+  const idx = data.vendors.findIndex((v) => v.id === req.params.vendorId);
+  if (idx === -1) return res.status(404).json({ error: "Vendor not found." });
+  data.vendors.splice(idx, 1);
+  saveData(data);
+  res.json({ ok: true });
+});
+
+// ── Per-Vendor Gates ────────────────────────────────────────────────────────
+
+app.put("/api/vendors/:vendorId/gates/:gateId/status", requirePin, (req, res) => {
   const { status } = req.body;
-  const allowed = ["red", "yellow", "green"];
-  if (!allowed.includes(status)) {
+  if (!["red", "yellow", "green"].includes(status)) {
     return res.status(400).json({ error: "Status must be red, yellow, or green." });
   }
   const data = loadData();
-  const item = data.processItems.find((i) => i.id === id);
-  if (!item) return res.status(404).json({ error: "Item not found." });
-  item.status = status;
+  const vendor = data.vendors.find((v) => v.id === req.params.vendorId);
+  if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+  const gate = vendor.processItems.find((g) => g.id === req.params.gateId);
+  if (!gate) return res.status(404).json({ error: "Gate not found." });
+  gate.status = status;
   saveData(data);
-  res.json(item);
+  res.json(gate);
 });
 
-app.put("/api/process/:id/admin", requirePin, (req, res) => {
-  const { id } = req.params;
-  const { assignedAdmin } = req.body;
+app.put("/api/vendors/:vendorId/gates/:gateId/admin", requirePin, (req, res) => {
   const data = loadData();
-  const item = data.processItems.find((i) => i.id === id);
-  if (!item) return res.status(404).json({ error: "Item not found." });
-  item.assignedAdmin = assignedAdmin || "";
+  const vendor = data.vendors.find((v) => v.id === req.params.vendorId);
+  if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+  const gate = vendor.processItems.find((g) => g.id === req.params.gateId);
+  if (!gate) return res.status(404).json({ error: "Gate not found." });
+  gate.assignedAdmin = req.body.assignedAdmin || "";
   saveData(data);
-  res.json(item);
+  res.json(gate);
 });
 
-// Bulk update all items at once
-app.put("/api/process/bulk", requirePin, (req, res) => {
-  const { items } = req.body;
-  if (!Array.isArray(items)) {
-    return res.status(400).json({ error: "Items must be an array." });
-  }
-  const data = loadData();
-  for (const update of items) {
-    const existing = data.processItems.find((i) => i.id === update.id);
-    if (existing) {
-      if (update.status) existing.status = update.status;
-      if (update.assignedAdmin !== undefined) existing.assignedAdmin = update.assignedAdmin;
-    }
-  }
-  saveData(data);
-  res.json({ items: data.processItems });
-});
-
-// ── Admin Management ────────────────────────────────────────────────────────
+// ── Admins ──────────────────────────────────────────────────────────────────
 
 app.post("/api/admins", requirePin, (req, res) => {
-  const { name, role } = req.body;
-  if (!name) return res.status(400).json({ error: "Name required." });
+  if (!req.body.name) return res.status(400).json({ error: "Name required." });
   const data = loadData();
-  const admin = { id: randomUUID(), name, role: role || "Process Admin", createdAt: new Date().toISOString() };
+  const admin = { id: randomUUID(), name: req.body.name, role: req.body.role || "Process Admin", createdAt: new Date().toISOString() };
   data.admins.push(admin);
   saveData(data);
   res.status(201).json(admin);
@@ -148,26 +183,16 @@ app.post("/api/admins", requirePin, (req, res) => {
 app.delete("/api/admins/:id", requirePin, (req, res) => {
   const data = loadData();
   data.admins = data.admins.filter((a) => a.id !== req.params.id);
-  // Clear assignments for removed admin
-  for (const item of data.processItems) {
-    if (item.assignedAdmin === req.params.id) item.assignedAdmin = "";
+  for (const vendor of data.vendors) {
+    for (const gate of vendor.processItems) {
+      if (gate.assignedAdmin === req.params.id) gate.assignedAdmin = "";
+    }
   }
   saveData(data);
   res.json({ ok: true });
 });
 
-// ── Verify PIN ──────────────────────────────────────────────────────────────
-
-app.post("/api/auth/verify", (req, res) => {
-  const pin = req.body?.pin;
-  if (pin === ADMIN_PIN) {
-    res.json({ valid: true });
-  } else {
-    res.status(401).json({ valid: false });
-  }
-});
-
-// ── Ideas Endpoints ─────────────────────────────────────────────────────────
+// ── Ideas ───────────────────────────────────────────────────────────────────
 
 app.get("/api/ideas", (_req, res) => {
   const data = loadData();
@@ -177,59 +202,42 @@ app.get("/api/ideas", (_req, res) => {
 app.post("/api/ideas", (req, res) => {
   const { title, description, submitter, subgroupId, priority } = req.body;
   if (!title || !description || !submitter || !subgroupId) {
-    return res.status(400).json({ error: "title, description, submitter, and subgroupId are required." });
+    return res.status(400).json({ error: "title, description, submitter, and subgroupId required." });
   }
   const data = loadData();
-  const idea = {
-    id: randomUUID(),
-    title,
-    description,
-    submitter,
-    subgroupId,
-    priority: priority || "medium",
-    status: "new",
-    createdAt: new Date().toISOString(),
-    comments: [],
-  };
+  const idea = { id: randomUUID(), title, description, submitter, subgroupId, priority: priority || "medium", status: "new", createdAt: new Date().toISOString(), comments: [] };
   data.ideas.unshift(idea);
   saveData(data);
   res.status(201).json(idea);
 });
 
 app.put("/api/ideas/:id/status", requirePin, (req, res) => {
-  const { status } = req.body;
   const allowed = ["new", "under_review", "approved", "in_progress", "completed", "declined"];
-  if (!allowed.includes(status)) {
-    return res.status(400).json({ error: `Status must be one of: ${allowed.join(", ")}` });
-  }
+  if (!allowed.includes(req.body.status)) return res.status(400).json({ error: "Invalid status." });
   const data = loadData();
   const idea = data.ideas.find((i) => i.id === req.params.id);
   if (!idea) return res.status(404).json({ error: "Idea not found." });
-  idea.status = status;
+  idea.status = req.body.status;
   saveData(data);
   res.json(idea);
 });
 
 app.post("/api/ideas/:id/comments", (req, res) => {
-  const { author, text } = req.body;
-  if (!author || !text) return res.status(400).json({ error: "author and text required." });
+  if (!req.body.author || !req.body.text) return res.status(400).json({ error: "author and text required." });
   const data = loadData();
   const idea = data.ideas.find((i) => i.id === req.params.id);
   if (!idea) return res.status(404).json({ error: "Idea not found." });
-  idea.comments.push({ id: randomUUID(), author, text, createdAt: new Date().toISOString() });
+  idea.comments.push({ id: randomUUID(), author: req.body.author, text: req.body.text, createdAt: new Date().toISOString() });
   saveData(data);
   res.json(idea);
 });
 
-// ── Static Files (Vite build output) ────────────────────────────────────────
+// ── Static + SPA fallback ───────────────────────────────────────────────────
 
 app.use(express.static(join(__dirname, "dist")));
-app.get("*", (_req, res) => {
-  res.sendFile(join(__dirname, "dist", "index.html"));
-});
-
-// ── Start ───────────────────────────────────────────────────────────────────
+app.get("*", (_req, res) => res.sendFile(join(__dirname, "dist", "index.html")));
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`[server] sUAS Dashboard running on port ${PORT}`);
+  console.log(`[server] sUAS Dashboard on port ${PORT}`);
+  console.log(`[server] Admin PIN: ${ADMIN_PIN === "1234" ? "DEFAULT (1234) — set ADMIN_PIN env var" : "custom"}`);
 });
