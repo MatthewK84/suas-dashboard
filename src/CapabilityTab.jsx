@@ -1,498 +1,190 @@
 import { useState, useMemo, useCallback } from "react";
 import { useSheetData } from "./useSheetData.js";
-import {
-  CRITERIA_KEYS,
-  STATUS,
-  CATEGORIES,
-  SAMPLE_PLATFORMS,
-} from "./sampleData.js";
+import { CRITERIA_KEYS, STATUS, CATEGORIES, SAMPLE_PLATFORMS } from "./sampleData.js";
 
-// ── Configuration ───────────────────────────────────────────────────────────
 const SHEET_URL = import.meta.env.VITE_SHEET_URL || "";
 const SHEET_GID = import.meta.env.VITE_SHEET_GID || "0";
 const REFRESH_MS = parseInt(import.meta.env.VITE_REFRESH_MS || "300000", 10);
 
-// ── Utility Functions ───────────────────────────────────────────────────────
-function getComplianceScore(platform) {
-  const vals = Object.values(platform.compliance);
-  return vals.filter((v) => v === STATUS.PASS || v === STATUS.WAIVER).length;
+const F = { h:"'Oswald','Bebas Neue','Impact',sans-serif", m:"'JetBrains Mono','Fira Code','Consolas',monospace", b:"'IBM Plex Sans','Segoe UI',sans-serif" };
+
+function getScore(p) { return Object.values(p.compliance).filter(v=>v==="PASS"||v==="WAIVER").length; }
+function isFull(p) { return getScore(p)===7; }
+function fmtCur(v) { if(v>=1e6) return `$${(v/1e6).toFixed(1)}M`; if(v>=1e3) return `$${(v/1e3).toFixed(0)}K`; return `$${v}`; }
+function fmtTs(d) { if(!d) return "—"; return d.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}); }
+
+function Badge({ status }) {
+  const cfg = { PASS:{bg:"#0d3320",br:"#16a34a",c:"#4ade80",l:"PASS"}, FAIL:{bg:"#3b1318",br:"#dc2626",c:"#f87171",l:"FAIL"}, PENDING:{bg:"#3b2e10",br:"#ca8a04",c:"#facc15",l:"PEND"}, WAIVER:{bg:"#1e2a3b",br:"#3b82f6",c:"#60a5fa",l:"WVRD"} };
+  const s = cfg[status]||cfg.PENDING;
+  return <span style={{ display:"inline-block", padding:"2px 8px", fontSize:10, fontWeight:700, fontFamily:F.m, letterSpacing:"0.08em", background:s.bg, border:`1px solid ${s.br}`, color:s.c, borderRadius:3 }}>{s.l}</span>;
 }
 
-function isFullyCompliant(platform) {
-  return getComplianceScore(platform) === 7;
+function CatTag({ category }) {
+  const cfg = { OFFENSIVE:{bg:"#3b1318",br:"#b91c1c",c:"#fca5a5",i:"⬆"}, DEFENSIVE:{bg:"#0c2d1e",br:"#15803d",c:"#86efac",i:"⬇"}, "DUAL-USE":{bg:"#2d2310",br:"#a16207",c:"#fde68a",i:"⬍"} };
+  const s = cfg[category]||cfg.OFFENSIVE;
+  return <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 10px", fontSize:10, fontWeight:800, fontFamily:F.m, letterSpacing:"0.12em", background:s.bg, border:`1px solid ${s.br}`, color:s.c, borderRadius:3 }}><span style={{fontSize:12}}>{s.i}</span>{category}</span>;
 }
 
-function formatCurrency(val) {
-  if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`;
-  if (val >= 1000) return `$${(val / 1000).toFixed(0)}K`;
-  return `$${val}`;
+function CompBar({ score }) {
+  const pct=(score/7)*100; const color=score===7?"#16a34a":score>=5?"#ca8a04":"#dc2626";
+  return (<div style={{display:"flex",alignItems:"center",gap:8}}>
+    <div style={{width:80,height:6,background:"#1a1f2e",borderRadius:3,overflow:"hidden",border:"1px solid #2a3040"}}>
+      <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:3,transition:"width 0.5s ease"}} /></div>
+    <span style={{fontFamily:F.m,fontSize:11,fontWeight:700,color}}>{score}/7</span></div>);
 }
 
-function formatTimestamp(date) {
-  if (!date) return "—";
-  return date.toLocaleTimeString("en-US", {
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-  });
+function TRL({ trl }) {
+  const color=trl>=9?"#16a34a":trl>=7?"#ca8a04":"#dc2626";
+  return (<div style={{display:"flex",alignItems:"center",gap:4}}>
+    {[...Array(9)].map((_,i)=>(<div key={i} style={{width:5,height:i<trl?14:6,background:i<trl?color:"#1a1f2e",border:`1px solid ${i<trl?color:"#2a3040"}`,borderRadius:1,opacity:i<trl?1:0.3}} />))}
+    <span style={{marginLeft:4,fontFamily:F.m,fontSize:10,fontWeight:700,color}}>TRL-{trl}</span></div>);
 }
 
-// ── Shared Styles ───────────────────────────────────────────────────────────
-const FONTS = {
-  header: "'Oswald', 'Bebas Neue', 'Impact', sans-serif",
-  mono: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-  body: "'IBM Plex Sans', 'Segoe UI', sans-serif",
-};
-
-// ── Status Badge ────────────────────────────────────────────────────────────
-function StatusBadge({ status }) {
-  const config = {
-    PASS: { bg: "#0d3320", border: "#16a34a", text: "#4ade80", label: "PASS" },
-    FAIL: { bg: "#3b1318", border: "#dc2626", text: "#f87171", label: "FAIL" },
-    PENDING: { bg: "#3b2e10", border: "#ca8a04", text: "#facc15", label: "PEND" },
-    WAIVER: { bg: "#1e2a3b", border: "#3b82f6", text: "#60a5fa", label: "WVRD" },
-  };
-  const c = config[status] || config.PENDING;
-  return (
-    <span style={{
-      display: "inline-block", padding: "2px 8px", fontSize: "10px", fontWeight: 700,
-      fontFamily: FONTS.mono, letterSpacing: "0.08em", background: c.bg,
-      border: `1px solid ${c.border}`, color: c.text, borderRadius: "3px", textTransform: "uppercase",
-    }}>
-      {c.label}
-    </span>
-  );
-}
-
-// ── Category Tag ────────────────────────────────────────────────────────────
-function CategoryTag({ category }) {
-  const config = {
-    OFFENSIVE: { bg: "#3b1318", border: "#b91c1c", text: "#fca5a5", icon: "⬆" },
-    DEFENSIVE: { bg: "#0c2d1e", border: "#15803d", text: "#86efac", icon: "⬇" },
-    "DUAL-USE": { bg: "#2d2310", border: "#a16207", text: "#fde68a", icon: "⬍" },
-  };
-  const c = config[category] || config.OFFENSIVE;
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: "5px", padding: "3px 10px",
-      fontSize: "10px", fontWeight: 800, fontFamily: FONTS.mono, letterSpacing: "0.12em",
-      background: c.bg, border: `1px solid ${c.border}`, color: c.text, borderRadius: "3px",
-    }}>
-      <span style={{ fontSize: "12px" }}>{c.icon}</span>
-      {category}
-    </span>
-  );
-}
-
-// ── Compliance Bar ──────────────────────────────────────────────────────────
-function ComplianceBar({ score }) {
-  const pct = (score / 7) * 100;
-  const color = score === 7 ? "#16a34a" : score >= 5 ? "#ca8a04" : "#dc2626";
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-      <div style={{
-        width: "80px", height: "6px", background: "#1a1f2e", borderRadius: "3px",
-        overflow: "hidden", border: "1px solid #2a3040",
-      }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: "3px", transition: "width 0.5s ease" }} />
-      </div>
-      <span style={{ fontFamily: FONTS.mono, fontSize: "11px", fontWeight: 700, color }}>{score}/7</span>
+function DataBar({ source, loading, error, lastUpdated, onRefresh }) {
+  const sc=source==="sheet"?"#16a34a":"#ca8a04"; const sl=source==="sheet"?"GOOGLE SHEETS — LIVE":"SAMPLE DATA — FALLBACK";
+  return (<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,padding:"10px 20px",background:"#0d1117",border:`1px solid ${error?"#dc2626":"#21262d"}`,borderRadius:6,marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <div style={{width:8,height:8,borderRadius:"50%",background:loading?"#facc15":sc,boxShadow:`0 0 6px ${loading?"#facc15":sc}`,animation:loading?"pulse 0.8s infinite":"none"}} />
+      <span style={{fontFamily:F.m,fontSize:10,fontWeight:700,letterSpacing:"0.12em",color:sc}}>{loading?"FETCHING...":sl}</span>
+      {lastUpdated&&<span style={{fontFamily:F.m,fontSize:10,color:"#4b5563"}}>LAST SYNC: {fmtTs(lastUpdated)}</span>}
     </div>
-  );
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      {error&&<span style={{fontFamily:F.m,fontSize:10,color:"#f87171",maxWidth:400,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>ERR: {error}</span>}
+      {source==="sheet"&&<button onClick={onRefresh} disabled={loading} style={{padding:"4px 12px",fontSize:10,fontWeight:700,fontFamily:F.m,letterSpacing:"0.1em",border:"1px solid #30363d",background:"#161b22",color:loading?"#4b5563":"#9ca3af",borderRadius:4,cursor:loading?"not-allowed":"pointer"}}>↻ REFRESH</button>}
+      {source==="fallback"&&<span style={{fontFamily:F.m,fontSize:10,color:"#6b7280"}}>SET VITE_SHEET_URL TO CONNECT</span>}
+    </div></div>);
 }
 
-// ── TRL Indicator ───────────────────────────────────────────────────────────
-function TRLIndicator({ trl }) {
-  const color = trl >= 9 ? "#16a34a" : trl >= 7 ? "#ca8a04" : "#dc2626";
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-      {[...Array(9)].map((_, i) => (
-        <div key={i} style={{
-          width: "5px", height: i < trl ? "14px" : "6px",
-          background: i < trl ? color : "#1a1f2e",
-          border: `1px solid ${i < trl ? color : "#2a3040"}`,
-          borderRadius: "1px", transition: "all 0.3s ease", opacity: i < trl ? 1 : 0.3,
-        }} />
-      ))}
-      <span style={{ marginLeft: "4px", fontFamily: FONTS.mono, fontSize: "10px", fontWeight: 700, color }}>
-        TRL-{trl}
-      </span>
-    </div>
-  );
-}
-
-// ── Data Source Indicator ────────────────────────────────────────────────────
-function DataSourceBar({ source, loading, error, lastUpdated, onRefresh }) {
-  const sourceColor = source === "sheet" ? "#16a34a" : "#ca8a04";
-  const sourceLabel = source === "sheet" ? "GOOGLE SHEETS — LIVE" : "SAMPLE DATA — FALLBACK";
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap",
-      gap: "10px", padding: "10px 20px", background: "#0d1117",
-      border: `1px solid ${error ? "#dc2626" : "#21262d"}`, borderRadius: "6px", marginBottom: "16px",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-        <div style={{
-          width: "8px", height: "8px", borderRadius: "50%",
-          background: loading ? "#facc15" : sourceColor,
-          boxShadow: `0 0 6px ${loading ? "#facc15" : sourceColor}`,
-          animation: loading ? "pulse 0.8s infinite" : "none",
-        }} />
-        <span style={{ fontFamily: FONTS.mono, fontSize: "10px", fontWeight: 700, letterSpacing: "0.12em", color: sourceColor }}>
-          {loading ? "FETCHING..." : sourceLabel}
-        </span>
-        {lastUpdated && (
-          <span style={{ fontFamily: FONTS.mono, fontSize: "10px", color: "#4b5563" }}>
-            LAST SYNC: {formatTimestamp(lastUpdated)}
-          </span>
-        )}
+function Detail({ platform:p, onClose }) {
+  if(!p) return null; const score=getScore(p);
+  return (<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",backdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}} onClick={onClose}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#0d1117",border:"1px solid #30363d",borderRadius:8,maxWidth:720,width:"100%",maxHeight:"85vh",overflowY:"auto",padding:32,boxShadow:"0 24px 80px rgba(0,0,0,0.6)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:24}}>
+        <div><div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}><span style={{fontFamily:F.m,fontSize:12,color:"#6b7280"}}>{p.id}</span><CatTag category={p.category}/></div>
+          <h2 style={{fontFamily:F.h,fontSize:28,fontWeight:700,color:"#e5e7eb",letterSpacing:"0.02em",margin:0}}>{p.name}</h2>
+          <p style={{fontFamily:F.m,fontSize:12,color:"#9ca3af",margin:"4px 0 0"}}>{p.manufacturer} — {p.subcategory}</p></div>
+        <button onClick={onClose} style={{background:"none",border:"1px solid #30363d",color:"#9ca3af",cursor:"pointer",fontSize:18,padding:"4px 10px",borderRadius:4,fontFamily:"monospace"}}>✕</button></div>
+      <p style={{fontFamily:F.b,fontSize:14,color:"#d1d5db",lineHeight:1.6,margin:"0 0 24px"}}>{p.description}</p>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:28}}>
+        {[{l:"TRL",v:p.trl},{l:"UNIT COST",v:fmtCur(p.unitCost)},{l:"QTY",v:p.qty.toLocaleString()},{l:"COMPLIANCE",v:`${score}/7`}].map(s=>(
+          <div key={s.l} style={{background:"#161b22",border:"1px solid #21262d",borderRadius:6,padding:14,textAlign:"center"}}>
+            <div style={{fontFamily:F.m,fontSize:9,color:"#6b7280",letterSpacing:"0.15em",marginBottom:6}}>{s.l}</div>
+            <div style={{fontFamily:F.h,fontSize:22,fontWeight:700,color:"#e5e7eb"}}>{s.v}</div></div>))}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-        {error && (
-          <span style={{
-            fontFamily: FONTS.mono, fontSize: "10px", color: "#f87171",
-            maxWidth: "400px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}>
-            ERR: {error}
-          </span>
-        )}
-        {source === "sheet" && (
-          <button onClick={onRefresh} disabled={loading} style={{
-            padding: "4px 12px", fontSize: "10px", fontWeight: 700, fontFamily: FONTS.mono,
-            letterSpacing: "0.1em", border: "1px solid #30363d", background: "#161b22",
-            color: loading ? "#4b5563" : "#9ca3af", borderRadius: "4px",
-            cursor: loading ? "not-allowed" : "pointer",
-          }}>
-            ↻ REFRESH
-          </button>
-        )}
-        {source === "fallback" && (
-          <span style={{ fontFamily: FONTS.mono, fontSize: "10px", color: "#6b7280" }}>
-            SET VITE_SHEET_URL TO CONNECT
-          </span>
-        )}
+      <h3 style={{fontFamily:F.m,fontSize:11,fontWeight:700,color:"#6b7280",letterSpacing:"0.15em",margin:"0 0 12px"}}>COMPLIANCE GATE ASSESSMENT</h3>
+      <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:24}}>
+        {CRITERIA_KEYS.map(c=>(<div key={c.key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 14px",background:"#161b22",border:"1px solid #21262d",borderRadius:4}}>
+          <span style={{fontFamily:F.b,fontSize:13,color:"#d1d5db"}}>{c.label}</span><Badge status={p.compliance[c.key]}/></div>))}
       </div>
-    </div>
-  );
+      {p.notes&&<div style={{padding:"14px 18px",background:"#161b22",border:"1px solid #21262d",borderLeft:"3px solid #3b82f6",borderRadius:4,fontFamily:F.b,fontSize:13,color:"#9ca3af",lineHeight:1.5}}>
+        <strong style={{color:"#60a5fa",fontFamily:F.m,fontSize:10,letterSpacing:"0.1em"}}>REMARKS: </strong>{p.notes}</div>}
+    </div></div>);
 }
 
-// ── Platform Detail Panel ───────────────────────────────────────────────────
-function PlatformDetail({ platform, onClose }) {
-  if (!platform) return null;
-  const score = getComplianceScore(platform);
-  return (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(8px)",
-      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px",
-    }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        background: "#0d1117", border: "1px solid #30363d", borderRadius: "8px",
-        maxWidth: "720px", width: "100%", maxHeight: "85vh", overflowY: "auto",
-        padding: "32px", boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
-              <span style={{ fontFamily: FONTS.mono, fontSize: "12px", color: "#6b7280" }}>{platform.id}</span>
-              <CategoryTag category={platform.category} />
-            </div>
-            <h2 style={{
-              fontFamily: FONTS.header, fontSize: "28px", fontWeight: 700, color: "#e5e7eb",
-              letterSpacing: "0.02em", margin: 0,
-            }}>
-              {platform.name}
-            </h2>
-            <p style={{ fontFamily: FONTS.mono, fontSize: "12px", color: "#9ca3af", margin: "4px 0 0 0" }}>
-              {platform.manufacturer} — {platform.subcategory}
-            </p>
-          </div>
-          <button onClick={onClose} style={{
-            background: "none", border: "1px solid #30363d", color: "#9ca3af",
-            cursor: "pointer", fontSize: "18px", padding: "4px 10px", borderRadius: "4px", fontFamily: "monospace",
-          }}>✕</button>
-        </div>
-
-        <p style={{ fontFamily: FONTS.body, fontSize: "14px", color: "#d1d5db", lineHeight: 1.6, margin: "0 0 24px 0" }}>
-          {platform.description}
-        </p>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "28px" }}>
-          {[
-            { label: "TRL", value: platform.trl },
-            { label: "UNIT COST", value: formatCurrency(platform.unitCost) },
-            { label: "QTY ON CONTRACT", value: platform.qty.toLocaleString() },
-            { label: "COMPLIANCE", value: `${score}/7` },
-          ].map((s) => (
-            <div key={s.label} style={{
-              background: "#161b22", border: "1px solid #21262d", borderRadius: "6px", padding: "14px", textAlign: "center",
-            }}>
-              <div style={{ fontFamily: FONTS.mono, fontSize: "9px", color: "#6b7280", letterSpacing: "0.15em", marginBottom: "6px" }}>{s.label}</div>
-              <div style={{ fontFamily: FONTS.header, fontSize: "22px", fontWeight: 700, color: "#e5e7eb" }}>{s.value}</div>
-            </div>
-          ))}
-        </div>
-
-        <h3 style={{
-          fontFamily: FONTS.mono, fontSize: "11px", fontWeight: 700, color: "#6b7280",
-          letterSpacing: "0.15em", margin: "0 0 12px 0", textTransform: "uppercase",
-        }}>Compliance Gate Assessment</h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "24px" }}>
-          {CRITERIA_KEYS.map((crit) => (
-            <div key={crit.key} style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "8px 14px", background: "#161b22", border: "1px solid #21262d", borderRadius: "4px",
-            }}>
-              <span style={{ fontFamily: FONTS.body, fontSize: "13px", color: "#d1d5db" }}>{crit.label}</span>
-              <StatusBadge status={platform.compliance[crit.key]} />
-            </div>
-          ))}
-        </div>
-
-        {platform.notes && (
-          <div style={{
-            padding: "14px 18px", background: "#161b22", border: "1px solid #21262d",
-            borderLeft: "3px solid #3b82f6", borderRadius: "4px", fontFamily: FONTS.body,
-            fontSize: "13px", color: "#9ca3af", lineHeight: 1.5,
-          }}>
-            <strong style={{ color: "#60a5fa", fontFamily: FONTS.mono, fontSize: "10px", letterSpacing: "0.1em" }}>REMARKS: </strong>
-            {platform.notes}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Main Dashboard ──────────────────────────────────────────────────────────
 export default function CapabilityTab() {
-  const { platforms, loading, error, lastUpdated, source, refresh } = useSheetData({
-    sheetUrl: SHEET_URL,
-    gid: SHEET_GID,
-    refreshMs: REFRESH_MS,
-    fallbackData: SAMPLE_PLATFORMS,
-  });
+  const { platforms, loading, error, lastUpdated, source, refresh } = useSheetData({ sheetUrl:SHEET_URL, gid:SHEET_GID, refreshMs:REFRESH_MS, fallbackData:SAMPLE_PLATFORMS });
+  const [fCat,setFCat]=useState("ALL"); const [fComp,setFComp]=useState("ALL"); const [search,setSearch]=useState(""); const [sel,setSel]=useState(null); const [sort,setSort]=useState("compliance");
 
-  const [filterCategory, setFilterCategory] = useState("ALL");
-  const [filterCompliance, setFilterCompliance] = useState("ALL");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedPlatform, setSelectedPlatform] = useState(null);
-  const [sortBy, setSortBy] = useState("compliance");
+  const filtered = useMemo(()=>{
+    let d=[...platforms];
+    if(fCat!=="ALL") d=d.filter(p=>p.category===fCat);
+    if(fComp==="FULL") d=d.filter(isFull); if(fComp==="PARTIAL") d=d.filter(p=>!isFull(p)&&getScore(p)>=5); if(fComp==="GATED") d=d.filter(p=>getScore(p)<5);
+    if(search){const t=search.toLowerCase();d=d.filter(p=>p.name.toLowerCase().includes(t)||p.manufacturer.toLowerCase().includes(t)||p.subcategory.toLowerCase().includes(t)||p.id.toLowerCase().includes(t));}
+    if(sort==="compliance")d.sort((a,b)=>getScore(b)-getScore(a)); else if(sort==="trl")d.sort((a,b)=>b.trl-a.trl); else if(sort==="cost")d.sort((a,b)=>a.unitCost-b.unitCost); else if(sort==="name")d.sort((a,b)=>a.name.localeCompare(b.name));
+    return d;
+  },[platforms,fCat,fComp,search,sort]);
 
-  const filtered = useMemo(() => {
-    let data = [...platforms];
-    if (filterCategory !== "ALL") data = data.filter((p) => p.category === filterCategory);
-    if (filterCompliance === "FULL") data = data.filter((p) => isFullyCompliant(p));
-    if (filterCompliance === "PARTIAL") data = data.filter((p) => !isFullyCompliant(p) && getComplianceScore(p) >= 5);
-    if (filterCompliance === "GATED") data = data.filter((p) => getComplianceScore(p) < 5);
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      data = data.filter((p) =>
-        p.name.toLowerCase().includes(term) ||
-        p.manufacturer.toLowerCase().includes(term) ||
-        p.subcategory.toLowerCase().includes(term) ||
-        p.id.toLowerCase().includes(term)
-      );
-    }
-    if (sortBy === "compliance") data.sort((a, b) => getComplianceScore(b) - getComplianceScore(a));
-    else if (sortBy === "trl") data.sort((a, b) => b.trl - a.trl);
-    else if (sortBy === "cost") data.sort((a, b) => a.unitCost - b.unitCost);
-    else if (sortBy === "name") data.sort((a, b) => a.name.localeCompare(b.name));
-    return data;
-  }, [platforms, filterCategory, filterCompliance, searchTerm, sortBy]);
+  const stats = useMemo(()=>{
+    const t=platforms.length,c=platforms.filter(isFull).length,o=platforms.filter(p=>p.category==="OFFENSIVE").length,d=platforms.filter(p=>p.category==="DEFENSIVE").length,du=platforms.filter(p=>p.category==="DUAL-USE").length,pe=platforms.filter(p=>Object.values(p.compliance).some(v=>v==="PENDING")).length,tv=platforms.reduce((s,p)=>s+p.unitCost*p.qty,0);
+    return {total:t,compliant:c,offensive:o,defensive:d,dualUse:du,pending:pe,totalValue:tv};
+  },[platforms]);
 
-  const stats = useMemo(() => {
-    const total = platforms.length;
-    const compliant = platforms.filter(isFullyCompliant).length;
-    const offensive = platforms.filter((p) => p.category === CATEGORIES.OFFENSIVE).length;
-    const defensive = platforms.filter((p) => p.category === CATEGORIES.DEFENSIVE).length;
-    const dualUse = platforms.filter((p) => p.category === CATEGORIES.DUAL_USE).length;
-    const pending = platforms.filter((p) => Object.values(p.compliance).some((v) => v === STATUS.PENDING)).length;
-    const totalValue = platforms.reduce((s, p) => s + p.unitCost * p.qty, 0);
-    return { total, compliant, offensive, defensive, dualUse, pending, totalValue };
-  }, [platforms]);
-
-  const btnStyle = useCallback((active) => ({
-    padding: "6px 14px", fontSize: "10px", fontWeight: 700, fontFamily: FONTS.mono,
-    letterSpacing: "0.1em", border: active ? "1px solid #60a5fa" : "1px solid #30363d",
-    background: active ? "#1e3a5f" : "#161b22", color: active ? "#93c5fd" : "#6b7280",
-    borderRadius: "4px", cursor: "pointer", transition: "all 0.2s ease", textTransform: "uppercase",
-  }), []);
+  const btn = useCallback((active)=>({padding:"6px 14px",fontSize:10,fontWeight:700,fontFamily:F.m,letterSpacing:"0.1em",border:active?"1px solid #60a5fa":"1px solid #30363d",background:active?"#1e3a5f":"#161b22",color:active?"#93c5fd":"#6b7280",borderRadius:4,cursor:"pointer",textTransform:"uppercase"}),[]);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0a0e14", color: "#e5e7eb", fontFamily: FONTS.body, padding: 0 }}>
-      <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-
-      {/* ═══ HEADER ═══ */}
-      <div style={{ background: "linear-gradient(180deg, #0d1117 0%, #0a0e14 100%)", borderBottom: "1px solid #21262d", padding: "20px 32px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
+    <div style={{minHeight:"100vh",background:"#0a0e14",color:"#e5e7eb",fontFamily:F.b}}>
+      {/* HEADER */}
+      <div style={{background:"linear-gradient(180deg,#0d1117,#0a0e14)",borderBottom:"1px solid #21262d",padding:"20px 32px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "4px" }}>
-              <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#16a34a", boxShadow: "0 0 8px #16a34a", animation: "pulse 2s infinite" }} />
-              <span style={{ fontFamily: FONTS.mono, fontSize: "10px", color: "#4ade80", letterSpacing: "0.2em", fontWeight: 700 }}>
-                CLASSIFICATION: CUI // UNCLASSIFIED — FOUO
-              </span>
-            </div>
-            <h1 style={{ fontFamily: FONTS.header, fontSize: "clamp(22px, 4vw, 36px)", fontWeight: 700, color: "#f3f4f6", letterSpacing: "0.05em", margin: 0, lineHeight: 1.1 }}>
-              sUAS CAPABILITY READINESS DASHBOARD
-            </h1>
-            <p style={{ fontFamily: FONTS.mono, fontSize: "11px", color: "#6b7280", margin: "6px 0 0 0", letterSpacing: "0.05em" }}>
-              USCENTCOM AOR — FIELDING & COMPLIANCE STATUS TRACKER
-            </p>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontFamily: FONTS.mono, fontSize: "10px", color: "#6b7280", letterSpacing: "0.1em" }}>PORTFOLIO VALUE</div>
-            <div style={{ fontFamily: FONTS.header, fontSize: "28px", fontWeight: 700, color: "#60a5fa" }}>
-              ${(stats.totalValue / 1e9).toFixed(2)}B
-            </div>
-          </div>
-        </div>
-      </div>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:4}}>
+              <div style={{width:8,height:8,borderRadius:"50%",background:"#16a34a",boxShadow:"0 0 8px #16a34a",animation:"pulse 2s infinite"}} />
+              <span style={{fontFamily:F.m,fontSize:10,color:"#4ade80",letterSpacing:"0.2em",fontWeight:700}}>CLASSIFICATION: CUI // UNCLASSIFIED — FOUO</span></div>
+            <h1 style={{fontFamily:F.h,fontSize:"clamp(22px,4vw,36px)",fontWeight:700,color:"#f3f4f6",letterSpacing:"0.05em",margin:0}}>sUAS CAPABILITY READINESS DASHBOARD</h1>
+            <p style={{fontFamily:F.m,fontSize:11,color:"#6b7280",margin:"6px 0 0",letterSpacing:"0.05em"}}>USCENTCOM AOR — FIELDING & COMPLIANCE STATUS TRACKER</p></div>
+          <div style={{textAlign:"right"}}><div style={{fontFamily:F.m,fontSize:10,color:"#6b7280",letterSpacing:"0.1em"}}>PORTFOLIO VALUE</div>
+            <div style={{fontFamily:F.h,fontSize:28,fontWeight:700,color:"#60a5fa"}}>${(stats.totalValue/1e9).toFixed(2)}B</div></div>
+        </div></div>
 
-      <div style={{ padding: "24px 32px" }}>
-        {/* ═══ DATA SOURCE BAR ═══ */}
-        <DataSourceBar source={source} loading={loading} error={error} lastUpdated={lastUpdated} onRefresh={refresh} />
+      <div style={{padding:"24px 32px"}}>
+        <DataBar source={source} loading={loading} error={error} lastUpdated={lastUpdated} onRefresh={refresh} />
 
-        {/* ═══ KPI STRIP ═══ */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "12px", marginBottom: "24px" }}>
-          {[
-            { label: "TOTAL SYSTEMS", value: stats.total, color: "#e5e7eb" },
-            { label: "FULLY COMPLIANT", value: stats.compliant, color: "#4ade80" },
-            { label: "OFFENSIVE", value: stats.offensive, color: "#f87171" },
-            { label: "DEFENSIVE", value: stats.defensive, color: "#86efac" },
-            { label: "DUAL-USE", value: stats.dualUse, color: "#fde68a" },
-            { label: "PENDING GATES", value: stats.pending, color: "#facc15" },
-          ].map((kpi) => (
-            <div key={kpi.label} style={{ background: "#0d1117", border: "1px solid #21262d", borderRadius: "6px", padding: "16px", textAlign: "center" }}>
-              <div style={{ fontFamily: FONTS.mono, fontSize: "9px", color: "#6b7280", letterSpacing: "0.15em", marginBottom: "6px" }}>{kpi.label}</div>
-              <div style={{ fontFamily: FONTS.header, fontSize: "32px", fontWeight: 700, color: kpi.color }}>{kpi.value}</div>
-            </div>
-          ))}
+        {/* KPIs */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:24}}>
+          {[{l:"TOTAL SYSTEMS",v:stats.total,c:"#e5e7eb"},{l:"FULLY COMPLIANT",v:stats.compliant,c:"#4ade80"},{l:"OFFENSIVE",v:stats.offensive,c:"#f87171"},{l:"DEFENSIVE",v:stats.defensive,c:"#86efac"},{l:"DUAL-USE",v:stats.dualUse,c:"#fde68a"},{l:"PENDING GATES",v:stats.pending,c:"#facc15"}].map(k=>(
+            <div key={k.l} style={{background:"#0d1117",border:"1px solid #21262d",borderRadius:6,padding:16,textAlign:"center"}}>
+              <div style={{fontFamily:F.m,fontSize:9,color:"#6b7280",letterSpacing:"0.15em",marginBottom:6}}>{k.l}</div>
+              <div style={{fontFamily:F.h,fontSize:32,fontWeight:700,color:k.c}}>{k.v}</div></div>))}
         </div>
 
-        {/* ═══ COMPLIANCE GATE SUMMARY BAR ═══ */}
-        <div style={{ background: "#0d1117", border: "1px solid #21262d", borderRadius: "6px", padding: "16px 20px", marginBottom: "24px", display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "8px" }}>
-          {CRITERIA_KEYS.map((crit) => {
-            const passCount = platforms.filter((p) => p.compliance[crit.key] === STATUS.PASS || p.compliance[crit.key] === STATUS.WAIVER).length;
-            const pct = platforms.length > 0 ? Math.round((passCount / platforms.length) * 100) : 0;
-            const color = pct === 100 ? "#16a34a" : pct >= 80 ? "#ca8a04" : "#dc2626";
-            return (
-              <div key={crit.key} style={{ textAlign: "center" }}>
-                <div style={{ fontFamily: FONTS.mono, fontSize: "9px", color: "#6b7280", letterSpacing: "0.1em", marginBottom: "6px" }}>{crit.short}</div>
-                <div style={{ fontFamily: FONTS.header, fontSize: "22px", fontWeight: 700, color }}>{pct}%</div>
-                <div style={{ height: "4px", background: "#1a1f2e", borderRadius: "2px", marginTop: "6px", overflow: "hidden" }}>
-                  <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: "2px", transition: "width 0.6s ease" }} />
-                </div>
-                <div style={{ fontFamily: FONTS.mono, fontSize: "9px", color: "#4b5563", marginTop: "4px" }}>{passCount}/{platforms.length}</div>
-              </div>
-            );
+        {/* GATE SUMMARY */}
+        <div style={{background:"#0d1117",border:"1px solid #21262d",borderRadius:6,padding:"16px 20px",marginBottom:24,display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8}}>
+          {CRITERIA_KEYS.map(crit=>{
+            const pc=platforms.filter(p=>p.compliance[crit.key]==="PASS"||p.compliance[crit.key]==="WAIVER").length;
+            const pct=platforms.length>0?Math.round((pc/platforms.length)*100):0;
+            const color=pct===100?"#16a34a":pct>=80?"#ca8a04":"#dc2626";
+            return (<div key={crit.key} style={{textAlign:"center"}}>
+              <div style={{fontFamily:F.m,fontSize:9,color:"#6b7280",letterSpacing:"0.1em",marginBottom:6}}>{crit.short}</div>
+              <div style={{fontFamily:F.h,fontSize:22,fontWeight:700,color}}>{pct}%</div>
+              <div style={{height:4,background:"#1a1f2e",borderRadius:2,marginTop:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:2,transition:"width 0.6s ease"}} /></div>
+              <div style={{fontFamily:F.m,fontSize:9,color:"#4b5563",marginTop:4}}>{pc}/{platforms.length}</div></div>);
           })}
         </div>
 
-        {/* ═══ FILTERS ═══ */}
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", marginBottom: "20px", padding: "16px 20px", background: "#0d1117", border: "1px solid #21262d", borderRadius: "6px" }}>
-          <span style={{ fontFamily: FONTS.mono, fontSize: "10px", color: "#6b7280", letterSpacing: "0.12em" }}>CATEGORY</span>
-          {["ALL", "OFFENSIVE", "DEFENSIVE", "DUAL-USE"].map((cat) => (
-            <button key={cat} style={btnStyle(filterCategory === cat)} onClick={() => setFilterCategory(cat)}>{cat}</button>
-          ))}
-          <span style={{ width: "1px", height: "20px", background: "#30363d", margin: "0 4px" }} />
-          <span style={{ fontFamily: FONTS.mono, fontSize: "10px", color: "#6b7280", letterSpacing: "0.12em" }}>COMPLIANCE</span>
-          {[
-            { val: "ALL", label: "ALL" },
-            { val: "FULL", label: "7/7 PASS" },
-            { val: "PARTIAL", label: "≥5 PASS" },
-            { val: "GATED", label: "GATED" },
-          ].map((f) => (
-            <button key={f.val} style={btnStyle(filterCompliance === f.val)} onClick={() => setFilterCompliance(f.val)}>{f.label}</button>
-          ))}
-          <span style={{ width: "1px", height: "20px", background: "#30363d", margin: "0 4px" }} />
-          <span style={{ fontFamily: FONTS.mono, fontSize: "10px", color: "#6b7280", letterSpacing: "0.12em" }}>SORT</span>
-          {[
-            { val: "compliance", label: "COMPLIANCE" },
-            { val: "trl", label: "TRL" },
-            { val: "cost", label: "COST" },
-            { val: "name", label: "NAME" },
-          ].map((s) => (
-            <button key={s.val} style={btnStyle(sortBy === s.val)} onClick={() => setSortBy(s.val)}>{s.label}</button>
-          ))}
-          <div style={{ marginLeft: "auto" }}>
-            <input type="text" placeholder="SEARCH PLATFORMS..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ background: "#161b22", border: "1px solid #30363d", borderRadius: "4px", padding: "7px 14px", fontFamily: FONTS.mono, fontSize: "11px", color: "#e5e7eb", outline: "none", width: "200px", letterSpacing: "0.05em" }}
-            />
-          </div>
+        {/* FILTERS */}
+        <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:12,marginBottom:20,padding:"16px 20px",background:"#0d1117",border:"1px solid #21262d",borderRadius:6}}>
+          <span style={{fontFamily:F.m,fontSize:10,color:"#6b7280",letterSpacing:"0.12em"}}>CATEGORY</span>
+          {["ALL","OFFENSIVE","DEFENSIVE","DUAL-USE"].map(c=><button key={c} style={btn(fCat===c)} onClick={()=>setFCat(c)}>{c}</button>)}
+          <span style={{width:1,height:20,background:"#30363d",margin:"0 4px"}} />
+          <span style={{fontFamily:F.m,fontSize:10,color:"#6b7280",letterSpacing:"0.12em"}}>COMPLIANCE</span>
+          {[{v:"ALL",l:"ALL"},{v:"FULL",l:"7/7 PASS"},{v:"PARTIAL",l:"≥5 PASS"},{v:"GATED",l:"GATED"}].map(f=><button key={f.v} style={btn(fComp===f.v)} onClick={()=>setFComp(f.v)}>{f.l}</button>)}
+          <span style={{width:1,height:20,background:"#30363d",margin:"0 4px"}} />
+          <span style={{fontFamily:F.m,fontSize:10,color:"#6b7280",letterSpacing:"0.12em"}}>SORT</span>
+          {[{v:"compliance",l:"COMPLIANCE"},{v:"trl",l:"TRL"},{v:"cost",l:"COST"},{v:"name",l:"NAME"}].map(s=><button key={s.v} style={btn(sort===s.v)} onClick={()=>setSort(s.v)}>{s.l}</button>)}
+          <div style={{marginLeft:"auto"}}><input type="text" placeholder="SEARCH PLATFORMS..." value={search} onChange={e=>setSearch(e.target.value)}
+            style={{background:"#161b22",border:"1px solid #30363d",borderRadius:4,padding:"7px 14px",fontFamily:F.m,fontSize:11,color:"#e5e7eb",outline:"none",width:200,letterSpacing:"0.05em"}} /></div>
         </div>
 
-        {/* ═══ PLATFORM TABLE ═══ */}
-        <div style={{ background: "#0d1117", border: "1px solid #21262d", borderRadius: "6px", overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "80px 2fr 1.5fr 100px 90px 1fr 80px", gap: "8px", padding: "12px 20px", background: "#161b22", borderBottom: "1px solid #21262d", alignItems: "center" }}>
-            {["SYS-ID", "PLATFORM", "MANUFACTURER", "CATEGORY", "TRL", "COMPLIANCE", "COST"].map((h) => (
-              <div key={h} style={{ fontFamily: FONTS.mono, fontSize: "9px", fontWeight: 700, color: "#6b7280", letterSpacing: "0.15em", textTransform: "uppercase" }}>{h}</div>
-            ))}
+        {/* TABLE */}
+        <div style={{background:"#0d1117",border:"1px solid #21262d",borderRadius:6,overflow:"hidden"}}>
+          <div style={{display:"grid",gridTemplateColumns:"80px 2fr 1.5fr 100px 90px 1fr 80px",gap:8,padding:"12px 20px",background:"#161b22",borderBottom:"1px solid #21262d",alignItems:"center"}}>
+            {["SYS-ID","PLATFORM","MANUFACTURER","CATEGORY","TRL","COMPLIANCE","COST"].map(h=>(<div key={h} style={{fontFamily:F.m,fontSize:9,fontWeight:700,color:"#6b7280",letterSpacing:"0.15em"}}>{h}</div>))}
           </div>
-
-          {filtered.map((platform, idx) => (
-            <div key={platform.id} onClick={() => setSelectedPlatform(platform)}
-              style={{
-                display: "grid", gridTemplateColumns: "80px 2fr 1.5fr 100px 90px 1fr 80px",
-                gap: "8px", padding: "14px 20px", borderBottom: "1px solid #21262d",
-                cursor: "pointer", transition: "background 0.15s ease", alignItems: "center",
-                background: idx % 2 === 0 ? "transparent" : "rgba(22,27,34,0.4)",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "#1c2333")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = idx % 2 === 0 ? "transparent" : "rgba(22,27,34,0.4)")}
-            >
-              <div style={{ fontFamily: FONTS.mono, fontSize: "11px", color: "#6b7280" }}>{platform.id}</div>
-              <div>
-                <div style={{ fontFamily: FONTS.header, fontSize: "15px", fontWeight: 600, color: "#f3f4f6", letterSpacing: "0.02em" }}>{platform.name}</div>
-                <div style={{ fontFamily: FONTS.mono, fontSize: "10px", color: "#4b5563", marginTop: "2px" }}>{platform.subcategory}</div>
-              </div>
-              <div style={{ fontFamily: FONTS.body, fontSize: "12px", color: "#9ca3af" }}>{platform.manufacturer}</div>
-              <CategoryTag category={platform.category} />
-              <TRLIndicator trl={platform.trl} />
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <ComplianceBar score={getComplianceScore(platform)} />
-                <div style={{ display: "flex", gap: "3px" }}>
-                  {CRITERIA_KEYS.map((crit) => (
-                    <div key={crit.key} title={`${crit.label}: ${platform.compliance[crit.key]}`}
-                      style={{
-                        width: "8px", height: "8px", borderRadius: "2px",
-                        background: platform.compliance[crit.key] === STATUS.PASS ? "#16a34a"
-                          : platform.compliance[crit.key] === STATUS.WAIVER ? "#3b82f6"
-                          : platform.compliance[crit.key] === STATUS.PENDING ? "#ca8a04" : "#dc2626",
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div style={{ fontFamily: FONTS.mono, fontSize: "12px", color: "#9ca3af", fontWeight: 600 }}>{formatCurrency(platform.unitCost)}</div>
-            </div>
-          ))}
-
-          {filtered.length === 0 && (
-            <div style={{ padding: "40px 20px", textAlign: "center", fontFamily: FONTS.mono, fontSize: "12px", color: "#4b5563" }}>
-              NO PLATFORMS MATCH CURRENT FILTER CRITERIA
-            </div>
-          )}
+          {filtered.map((p,idx)=>(
+            <div key={p.id} onClick={()=>setSel(p)} style={{display:"grid",gridTemplateColumns:"80px 2fr 1.5fr 100px 90px 1fr 80px",gap:8,padding:"14px 20px",borderBottom:"1px solid #21262d",cursor:"pointer",transition:"background 0.15s",alignItems:"center",background:idx%2===0?"transparent":"rgba(22,27,34,0.4)"}}
+              onMouseEnter={e=>e.currentTarget.style.background="#1c2333"} onMouseLeave={e=>e.currentTarget.style.background=idx%2===0?"transparent":"rgba(22,27,34,0.4)"}>
+              <div style={{fontFamily:F.m,fontSize:11,color:"#6b7280"}}>{p.id}</div>
+              <div><div style={{fontFamily:F.h,fontSize:15,fontWeight:600,color:"#f3f4f6",letterSpacing:"0.02em"}}>{p.name}</div><div style={{fontFamily:F.m,fontSize:10,color:"#4b5563",marginTop:2}}>{p.subcategory}</div></div>
+              <div style={{fontFamily:F.b,fontSize:12,color:"#9ca3af"}}>{p.manufacturer}</div>
+              <CatTag category={p.category} />
+              <TRL trl={p.trl} />
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <CompBar score={getScore(p)} />
+                <div style={{display:"flex",gap:3}}>
+                  {CRITERIA_KEYS.map(c=><div key={c.key} title={`${c.label}: ${p.compliance[c.key]}`} style={{width:8,height:8,borderRadius:2,background:p.compliance[c.key]==="PASS"?"#16a34a":p.compliance[c.key]==="WAIVER"?"#3b82f6":p.compliance[c.key]==="PENDING"?"#ca8a04":"#dc2626"}} />)}
+                </div></div>
+              <div style={{fontFamily:F.m,fontSize:12,color:"#9ca3af",fontWeight:600}}>{fmtCur(p.unitCost)}</div>
+            </div>))}
+          {filtered.length===0&&<div style={{padding:"40px 20px",textAlign:"center",fontFamily:F.m,fontSize:12,color:"#4b5563"}}>NO PLATFORMS MATCH CURRENT FILTER CRITERIA</div>}
         </div>
 
-        {/* ═══ FOOTER ═══ */}
-        <div style={{ marginTop: "20px", padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #21262d" }}>
-          <span style={{ fontFamily: FONTS.mono, fontSize: "10px", color: "#4b5563", letterSpacing: "0.1em" }}>
-            DISPLAYING {filtered.length} OF {platforms.length} SYSTEMS
-          </span>
-          <span style={{ fontFamily: FONTS.mono, fontSize: "10px", color: "#4b5563", letterSpacing: "0.1em" }}>
-            AFCENT CTDO // sUAS CAPABILITY TRACKER // CLICK ROW FOR DETAIL
-          </span>
+        <div style={{marginTop:20,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",borderTop:"1px solid #21262d"}}>
+          <span style={{fontFamily:F.m,fontSize:10,color:"#4b5563",letterSpacing:"0.1em"}}>DISPLAYING {filtered.length} OF {platforms.length} SYSTEMS</span>
+          <span style={{fontFamily:F.m,fontSize:10,color:"#4b5563",letterSpacing:"0.1em"}}>AFCENT CTDO // sUAS CAPABILITY TRACKER</span>
         </div>
       </div>
-
-      {selectedPlatform && <PlatformDetail platform={selectedPlatform} onClose={() => setSelectedPlatform(null)} />}
-
-      <style>{`
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #0a0e14; }
-        ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #484f58; }
-      `}</style>
+      {sel&&<Detail platform={sel} onClose={()=>setSel(null)} />}
+      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
     </div>
   );
 }
