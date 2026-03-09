@@ -1,95 +1,90 @@
 # sUAS Capability Readiness Dashboard
 
-USCENTCOM AOR fielding and compliance status tracker with live Google Sheets integration.
+USCENTCOM AOR fielding tracker with four integrated views: program overview, capability readiness, process status, and idea intake.
 
 ## Architecture
 
 ```
-src/
-├── main.jsx          # React entry point
-├── App.jsx           # Dashboard UI (reads from useSheetData hook)
-├── useSheetData.js   # Google Sheets CSV fetch + parse + auto-refresh
-└── sampleData.js     # Fallback dataset (used when no sheet URL configured)
+suas-dashboard/
+├── package.json
+├── vite.config.js
+├── index.html
+├── server.js                  # Express API + static file serving
+├── .env.example
+├── sUAS_Platform_Data.xlsx    # Google Sheets upload template
+└── src/
+    ├── main.jsx               # React entry
+    ├── App.jsx                # Tab navigation shell
+    ├── IntroTab.jsx           # OVERVIEW — org structure graphic
+    ├── CapabilityTab.jsx      # CAPABILITIES — sUAS platform tracker
+    ├── ProcessTab.jsx         # PROCESS STATUS — R/Y/G gate tracker
+    ├── IdeasTab.jsx           # IDEA INTAKE — submission & routing
+    ├── useSheetData.js        # Google Sheets CSV fetch hook
+    └── sampleData.js          # Fallback platform dataset
 ```
 
-**Data flow:** Google Sheet → Published CSV endpoint → `useSheetData` hook (Papaparse) → React state → Dashboard UI. Auto-refreshes every 5 minutes (configurable).
+## Tabs
 
-## Google Sheet Setup
+### 1. OVERVIEW
+Layered organizational graphic: GOFO → C2/P2/I2/FC → CAPES+Status → Vendors.
 
-### 1. Create the Sheet
+### 2. CAPABILITIES
+sUAS platform dashboard with 7-gate compliance tracking. Pulls live data from a published Google Sheet (falls back to sample data).
 
-Create a new Google Sheet with **Row 1 as the header row** using these exact column names:
+### 3. PROCESS STATUS
+Red/Yellow/Green indicators for the full fielding workflow:
+- **Core gates:** MA, RWG, FM, CONT, ADMIN, ABL
+- **OTTI subsection:** Maiden Flight, Test, TTP, FG/Check Ride, Evaluate
+- **Operations:** CUOPS, FUOPS, TRANSCOM Coordination
 
-| Column | Header                | Type    | Example              |
-|--------|-----------------------|---------|----------------------|
-| A      | `id`                  | Text    | SYS-025              |
-| B      | `name`                | Text    | Switchblade 600      |
-| C      | `manufacturer`        | Text    | AeroVironment        |
-| D      | `category`            | Text    | OFFENSIVE            |
-| E      | `subcategory`         | Text    | Loitering Munition   |
-| F      | `description`         | Text    | Man-portable anti... |
-| G      | `trl`                 | Integer | 9                    |
-| H      | `unitCost`            | Integer | 55000                |
-| I      | `qty`                 | Integer | 1200                 |
-| J      | `funded`              | Text    | PASS                 |
-| K      | `dowContract`         | Text    | PASS                 |
-| L      | `blueSuasNdaa`        | Text    | PASS                 |
-| M      | `jagReview`           | Text    | PENDING              |
-| N      | `muaTechAssess`       | Text    | PASS                 |
-| O      | `warfighterCapability`| Text    | PASS                 |
-| P      | `centcomReady`        | Text    | PASS                 |
-| Q      | `notes`               | Text    | Combat proven. FMS…  |
+Admins authenticate with a PIN, then click indicators to cycle R/Y/G status. Admins can be created and assigned to individual gates.
 
-**Compliance columns (J–P)** accept: `PASS`, `FAIL`, `PENDING`, `WAIVER`
+### 4. IDEA INTAKE
+Submit ideas routed to functional subgroups (Ops, Logistics, Intel, Comms, Fires, Engineering, Leadership). Supports priority levels, status tracking, and comments. Admins can update idea status.
 
-**Category column (D)** accepts: `OFFENSIVE`, `DEFENSIVE`, `DUAL-USE`
+## Admin System
 
-### 2. Publish the Sheet
+The Process Status and Idea Intake tabs use PIN-based admin authentication.
 
-1. Open your Google Sheet
-2. Go to **File → Share → Publish to web**
-3. Select the target tab and choose **Comma-separated values (.csv)**
-4. Click **Publish**
-5. Copy the sheet URL (the standard edit URL works — the app extracts the sheet ID)
-
-### 3. Configure the Environment Variable
-
-**Local development** — create a `.env` file:
-```
-VITE_SHEET_URL=https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit
-VITE_SHEET_GID=0
-VITE_REFRESH_MS=300000
-```
-
-**Railway** — add the same variables in the service's **Variables** tab.
+- Default PIN: `1234` (change via `ADMIN_PIN` env var)
+- Click the lock icon on either tab to authenticate
+- Admin session persists in-browser until logout
+- Admins created in the Process tab are available for gate assignment
 
 ## Railway Deployment
 
 1. Push this directory to a GitHub repo
-2. Create a new project in Railway and connect the repo
-3. Add the `VITE_SHEET_URL` environment variable (and optionally `VITE_SHEET_GID`, `VITE_REFRESH_MS`)
-4. Railway auto-detects Node, runs `npm install` → `npm run build` → `npm run start`
-5. The `serve` package hosts the built static files on `0.0.0.0:$PORT`
+2. Create a new Railway project and connect the repo
+3. Add environment variables in the service's **Variables** tab:
+   - `ADMIN_PIN` — Admin authentication PIN
+   - `VITE_SHEET_URL` — Google Sheets URL (optional, for live capability data)
+4. Railway runs: `npm install` → `npm run build` → `npm run start`
+5. Express serves the Vite build and handles `/api/*` endpoints
 
-No Dockerfile or Nixpacks config required.
+Data persists in a `data.json` file on disk during runtime. For production persistence across redeploys, attach a Railway volume or swap to a database.
 
 ## Local Development
 
 ```bash
-cp .env.example .env
-# Edit .env with your Google Sheet URL
+cp .env.example .env        # Edit with your values
 npm install
-npm run dev
+node server.js &             # Start API server on :3000
+npm run dev                  # Start Vite dev server on :5173
 ```
 
-## How Updates Work
+Vite proxies `/api/*` requests to Express during development.
 
-Once connected to a published Google Sheet:
+## API Endpoints
 
-- The dashboard fetches fresh CSV data on page load
-- Auto-refreshes every 5 minutes (configurable via `VITE_REFRESH_MS`)
-- Manual refresh available via the ↻ REFRESH button in the data source bar
-- If a fetch fails, the dashboard retains the last successful data
-- If no sheet URL is set, sample data is displayed with a yellow indicator
-
-**Anyone with edit access to the Google Sheet can add, remove, or modify platform rows — the dashboard reflects changes on next refresh with zero redeployment.**
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/process` | — | Get all process items and admins |
+| PUT | `/api/process/:id/status` | PIN | Update item R/Y/G status |
+| PUT | `/api/process/:id/admin` | PIN | Assign admin to item |
+| POST | `/api/admins` | PIN | Create new admin |
+| DELETE | `/api/admins/:id` | PIN | Remove admin |
+| POST | `/api/auth/verify` | — | Verify admin PIN |
+| GET | `/api/ideas` | — | Get all ideas and subgroups |
+| POST | `/api/ideas` | — | Submit new idea |
+| PUT | `/api/ideas/:id/status` | PIN | Update idea status |
+| POST | `/api/ideas/:id/comments` | — | Add comment to idea |
