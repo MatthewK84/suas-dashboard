@@ -22,7 +22,7 @@ export default function IntroTab() {
       <div style={{ background:"linear-gradient(180deg,#0d1117,#0a0e14)", borderBottom:"1px solid #21262d", padding:"28px 32px", textAlign:"center" }}>
         <div style={{ display:"inline-flex", alignItems:"center", gap:12, marginBottom:8 }}>
           <div style={{ width:8, height:8, borderRadius:"50%", background:"#16a34a", boxShadow:"0 0 8px #16a34a", animation:"pulse 2s infinite" }} />
-          <span style={{ fontFamily:F.m, fontSize:10, color:"#4ade80", letterSpacing:"0.2em", fontWeight:700 }}>CLASSIFICATION: CUI // UNCLASSIFIED — FOUO</span>
+          <span style={{ fontFamily:F.m, fontSize:10, color:"#4ade80", letterSpacing:"0.2em", fontWeight:700 }}>CLASSIFICATION: UNCLASSIFIED</span>
         </div>
         <h1 style={{ fontFamily:F.h, fontSize:"clamp(28px,5vw,44px)", fontWeight:700, color:"#f3f4f6", letterSpacing:"0.06em", margin:0 }}>sUAS PROGRAM OVERVIEW</h1>
         <p style={{ fontFamily:F.m, fontSize:12, color:"#6b7280", margin:"10px 0 0", letterSpacing:"0.08em" }}>ORGANIZATIONAL STRUCTURE & CAPABILITY DELIVERY FRAMEWORK</p>
