@@ -23,7 +23,7 @@ export default function IntroTab() {
           <div style={{ width:8, height:8, borderRadius:"50%", background:"#16a34a", boxShadow:"0 0 8px #16a34a", animation:"pulse 2s infinite" }} />
           <span style={{ fontFamily:F.m, fontSize:10, color:"#4ade80", letterSpacing:"0.2em", fontWeight:700 }}>CLASSIFICATION: UNCLASSIFIED</span>
         </div>
-        <h1 style={{ fontFamily:F.h, fontSize:"clamp(28px,5vw,44px)", fontWeight:700, color:"#f3f4f6", letterSpacing:"0.06em", margin:0 }}>COTS COP</h1>
+        <h1 style={{ fontFamily:F.h, fontSize:"clamp(28px,5vw,44px)", fontWeight:700, color:"#f3f4f6", letterSpacing:"0.06em", margin:0 }}>AFCENT BATTLE LAB COP</h1>
         <p style={{ fontFamily:F.h, fontSize:"clamp(16px,2.5vw,24px)", color:"#93c5fd", margin:"6px 0 0", letterSpacing:"0.06em", fontWeight:600 }}>RAPID FIELDING — COTS/GOTS Goods & Services</p>
         <p style={{ fontFamily:F.m, fontSize:11, color:"#6b7280", margin:"8px 0 0", letterSpacing:"0.08em" }}>ORGANIZATIONAL STRUCTURE & CAPABILITY DELIVERY FRAMEWORK</p>
       </div>
