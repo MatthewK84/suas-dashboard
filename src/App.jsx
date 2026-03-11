@@ -8,7 +8,7 @@ import RoadmapTab from "./RoadmapTab.jsx";
 import HelpTab from "./HelpTab.jsx";
 
 const TABS = [
-  { id: "intro",       label: "COTS COP",        icon: "◈" },
+  { id: "intro",       label: "COP",              icon: "◈" },
   { id: "capability",  label: "RAPID FIELDING",   icon: "◆" },
   { id: "process",     label: "PROCESS STATUS",   icon: "◉" },
   { id: "acquisition", label: "ACQUISITION",      icon: "☑" },
