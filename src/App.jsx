@@ -2,23 +2,25 @@ import { useState } from "react";
 import IntroTab from "./IntroTab.jsx";
 import CapabilityTab from "./CapabilityTab.jsx";
 import ProcessTab from "./ProcessTab.jsx";
+import IdeasTab from "./IdeasTab.jsx";
 import AcquisitionTab from "./AcquisitionTab.jsx";
 import RoadmapTab from "./RoadmapTab.jsx";
-import IdeasTab from "./IdeasTab.jsx";
+import HelpTab from "./HelpTab.jsx";
 
 const TABS = [
-  { id: "intro",       label: "OVERVIEW",       icon: "◈" },
-  { id: "capability",  label: "CAPABILITIES",   icon: "◆" },
-  { id: "process",     label: "PROCESS STATUS", icon: "◉" },
-  { id: "acquisition", label: "ACQUISITION",    icon: "☑" },
-  { id: "roadmap",     label: "ROADMAP (FOC)",  icon: "▸" },
-  { id: "ideas",       label: "IDEA INTAKE",    icon: "◇" },
+  { id: "intro",       label: "COTS COP",        icon: "◈" },
+  { id: "capability",  label: "RAPID FIELDING",   icon: "◆" },
+  { id: "process",     label: "PROCESS STATUS",   icon: "◉" },
+  { id: "acquisition", label: "ACQUISITION",      icon: "☑" },
+  { id: "roadmap",     label: "ROADMAP (FOC)",    icon: "▸" },
+  { id: "ideas",       label: "IDEA INTAKE",      icon: "◇" },
+  { id: "help",        label: "HELP",             icon: "?" },
 ];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("intro");
   return (
-    <div style={{ minHeight: "100vh", background: "#0a0e14" }}>
+    <div style={{ minHeight:"100vh", background:"#0a0e14" }}>
       <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
       <nav style={{ display:"flex", alignItems:"stretch", background:"#0d1117", borderBottom:"2px solid #21262d", position:"sticky", top:0, zIndex:900, overflowX:"auto" }}>
         <div style={{ display:"flex", alignItems:"center", padding:"0 20px", borderRight:"1px solid #21262d", flexShrink:0 }}>
@@ -53,6 +55,7 @@ export default function App() {
         {activeTab === "acquisition" && <AcquisitionTab />}
         {activeTab === "roadmap" && <RoadmapTab />}
         {activeTab === "ideas" && <IdeasTab />}
+        {activeTab === "help" && <HelpTab />}
       </main>
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
