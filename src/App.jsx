@@ -24,7 +24,7 @@ export default function App() {
       <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
       <nav style={{ display:"flex", alignItems:"stretch", background:"#0d1117", borderBottom:"2px solid #21262d", position:"sticky", top:0, zIndex:900, overflowX:"auto" }}>
         <div style={{ display:"flex", alignItems:"center", padding:"0 20px", borderRight:"1px solid #21262d", flexShrink:0 }}>
-          <span style={{ fontFamily:"'Oswald',sans-serif", fontSize:16, fontWeight:700, color:"#60a5fa", letterSpacing:"0.12em" }}>sUAS</span>
+          <span style={{ fontFamily:"'Oswald',sans-serif", fontSize:16, fontWeight:700, color:"#60a5fa", letterSpacing:"0.12em" }}>ABL</span>
         </div>
         {TABS.map(tab => {
           const active = activeTab === tab.id;
