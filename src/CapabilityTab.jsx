@@ -27,7 +27,7 @@ export default function CapabilityTab() {
       <div style={{background:"linear-gradient(180deg,#0d1117,#0a0e14)",borderBottom:"1px solid #21262d",padding:"20px 32px"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:4}}><div style={{width:8,height:8,borderRadius:"50%",background:"#16a34a",boxShadow:"0 0 8px #16a34a",animation:"pulse 2s infinite"}}/><span style={{fontFamily:F.m,fontSize:10,color:"#4ade80",letterSpacing:"0.2em",fontWeight:700}}>CLASSIFICATION: CUI // UNCLASSIFIED — FOUO</span></div>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:4}}><div style={{width:8,height:8,borderRadius:"50%",background:"#16a34a",boxShadow:"0 0 8px #16a34a",animation:"pulse 2s infinite"}}/><span style={{fontFamily:F.m,fontSize:10,color:"#4ade80",letterSpacing:"0.2em",fontWeight:700}}>CLASSIFICATION: UNCLASSIFIED</span></div>
             <h1 style={{fontFamily:F.h,fontSize:"clamp(22px,4vw,36px)",fontWeight:700,color:"#f3f4f6",letterSpacing:"0.05em",margin:0}}>RAPID FIELDING — COTS/GOTS Goods & Services</h1>
             <p style={{fontFamily:F.m,fontSize:11,color:"#6b7280",margin:"6px 0 0",letterSpacing:"0.05em"}}>USCENTCOM AOR — CAPABILITY READINESS & COMPLIANCE TRACKER</p></div>
           <div style={{textAlign:"right"}}><div style={{fontFamily:F.m,fontSize:10,color:"#6b7280",letterSpacing:"0.1em"}}>PORTFOLIO VALUE</div><div style={{fontFamily:F.h,fontSize:28,fontWeight:700,color:"#60a5fa"}}>${(stats.totalValue/1e9).toFixed(2)}B</div></div>
