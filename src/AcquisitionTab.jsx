@@ -75,7 +75,7 @@ export default function AcquisitionTab(){
                 {COLS.map((col,ci)=>(<div key={ci} style={{borderRight:ci<COLS.length-1?"1px solid rgba(59,130,246,0.07)":"none"}}><Cell status={getCellStatus(sel.id,ri,ci)} clickable={isAdmin} onClick={()=>cycleCell(sel.id,ri,ci)}/></div>))}
               </div>))}
             </div>
-            <div style={{textAlign:"center",marginTop:24,fontFamily:F.h,fontSize:16,fontWeight:600,color:"#d4d4d8",fontStyle:"italic"}}>O&M Funded — USAF SECAF / CENTCOM CCMD Operations</div>
+            <div style={{textAlign:"center",marginTop:24,fontFamily:F.h,fontSize:16,fontWeight:600,color:"#d4d4d8",fontStyle:"italic"}}>AFCENT BATTLE LAB</div>
           </>):(<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"60vh"}}><div style={{fontFamily:F.h,fontSize:24,color:"#4b5563"}}>SELECT A VENDOR</div></div>)}
         </div>
       </div>
