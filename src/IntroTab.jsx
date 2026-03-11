@@ -38,7 +38,7 @@ export default function IntroTab() {
             <div style={{ fontFamily:F.b, fontSize:13, color:"#9ca3af", marginTop:12, maxWidth:500, margin:"12px auto 0", lineHeight:1.5 }}>Program authority, resource allocation, and strategic direction for sUAS capability fielding</div>
             {/* Quicklook outputs */}
             <div style={{ display:"flex", justifyContent:"center", gap:10, marginTop:16, flexWrap:"wrap" }}>
-              {["Quicklook","Dashboard","Briefing","COTS COP"].map(item=>(
+              {["Quicklook","Dashboard","Briefing","COP"].map(item=>(
                 <span key={item} style={{ padding:"4px 14px", background:"#1e3a5f", border:"1px solid #3b82f680", borderRadius:4, fontFamily:F.m, fontSize:10, color:"#93c5fd", letterSpacing:"0.06em", fontWeight:700 }}>+ {item}</span>
               ))}
             </div>
