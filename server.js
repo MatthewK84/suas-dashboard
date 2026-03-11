@@ -232,6 +232,61 @@ app.post("/api/ideas/:id/comments", (req, res) => {
   res.json(idea);
 });
 
+// ── Help / Tool Adjustment Requests ─────────────────────────────────────────
+
+app.get("/api/help", (_req, res) => {
+  const data = loadData();
+  if (!data.helpRequests) data.helpRequests = [];
+  res.json({ requests: data.helpRequests });
+});
+
+app.post("/api/help", (req, res) => {
+  const { name, org, reqType, tabRef, title, description, priority } = req.body;
+  if (!name || !title || !description || !reqType) {
+    return res.status(400).json({ error: "name, title, description, and reqType required." });
+  }
+  const data = loadData();
+  if (!data.helpRequests) data.helpRequests = [];
+  const item = { id: randomUUID(), name, org: org||"", reqType, tabRef: tabRef||"", title, description, priority: priority||"medium", status: "new", createdAt: new Date().toISOString() };
+  data.helpRequests.unshift(item);
+  saveData(data);
+  res.status(201).json(item);
+});
+
+app.put("/api/help/:id/status", requirePin, (req, res) => {
+  const allowed = ["new","acknowledged","in_progress","completed","declined"];
+  if (!allowed.includes(req.body.status)) return res.status(400).json({ error: "Invalid status." });
+  const data = loadData();
+  if (!data.helpRequests) data.helpRequests = [];
+  const item = data.helpRequests.find(r => r.id === req.params.id);
+  if (!item) return res.status(404).json({ error: "Request not found." });
+  item.status = req.body.status;
+  saveData(data);
+  res.json(item);
+});
+
+// ── Vendor Notices ──────────────────────────────────────────────────────────
+
+app.put("/api/vendors/:vendorId/notices", requirePin, (req, res) => {
+  const { notices } = req.body;
+  const data = loadData();
+  const vendor = data.vendors.find(v => v.id === req.params.vendorId);
+  if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+  vendor.notices = notices || [];
+  saveData(data);
+  res.json(vendor);
+});
+
+app.put("/api/vendors/:vendorId/funding", requirePin, (req, res) => {
+  const { bpac, fy, amount } = req.body;
+  const data = loadData();
+  const vendor = data.vendors.find(v => v.id === req.params.vendorId);
+  if (!vendor) return res.status(404).json({ error: "Vendor not found." });
+  vendor.funding = { bpac: bpac||"", fy: fy||"", amount: amount||"" };
+  saveData(data);
+  res.json(vendor);
+});
+
 // ── Static + SPA fallback ───────────────────────────────────────────────────
 
 app.use(express.static(join(__dirname, "dist")));
